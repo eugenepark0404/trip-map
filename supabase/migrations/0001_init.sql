@@ -194,9 +194,11 @@ create policy profiles_select on profiles
 create policy profiles_update_own on profiles
   for update using (id = auth.uid()) with check (id = auth.uid());
 
--- maps: members can read; only the creator can insert/update/delete
+-- maps: members can read (owner also included directly, since right after INSERT ... RETURNING
+-- the on_map_created trigger's map_members row may not yet be visible to this check);
+-- only the creator can insert/update/delete
 create policy maps_select on maps
-  for select using (public.is_map_member(id));
+  for select using (public.is_map_member(id) or owner_id = auth.uid());
 
 create policy maps_insert on maps
   for insert with check (owner_id = auth.uid());
