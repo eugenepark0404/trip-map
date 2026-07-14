@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMaps } from '../context/MapContext'
+import { supabase } from '../lib/supabase'
 import { MapSwitcher } from './MapSwitcher'
 
 export function Sidebar() {
@@ -52,6 +53,14 @@ export function Sidebar() {
                     <p className="text-sm text-muted">등록한 버킷여행지가 없습니다.</p>
                   </section>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => supabase.auth.signOut()}
+                  className="mt-auto self-start pt-6 text-xs text-muted underline underline-offset-2"
+                >
+                  로그아웃
+                </button>
               </>
             ) : (
               <>

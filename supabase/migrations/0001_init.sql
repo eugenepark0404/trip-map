@@ -34,13 +34,22 @@ create table map_members (
 create table diaries (
   id uuid primary key default gen_random_uuid(),
   map_id uuid not null references maps (id) on delete cascade,
-  region_code text not null,
   date date not null,
   body text not null default '',
   satisfaction numeric(3, 1) check (satisfaction >= 0 and satisfaction <= 10),
   revisit boolean not null default false,
   created_by uuid not null references auth.users (id) on delete cascade,
   updated_at timestamptz not null default now()
+);
+
+-- a diary can cover multiple regions (e.g. a trip touching several split districts). the
+-- representative photo's clip shape is the union of all of a diary's regions, which the client
+-- renders as one <clipPath> containing one <path> per region — SVG clips to the union of a
+-- clipPath's children natively, so no server-side geometry merging is needed.
+create table diary_regions (
+  diary_id uuid not null references diaries (id) on delete cascade,
+  region_code text not null,
+  primary key (diary_id, region_code)
 );
 
 create table diary_photos (
@@ -79,7 +88,7 @@ create table bucket_items (
   created_at timestamptz not null default now()
 );
 
-create index diaries_map_id_region_code_idx on diaries (map_id, region_code);
+create index diary_regions_region_code_idx on diary_regions (region_code);
 create index diary_photos_diary_id_idx on diary_photos (diary_id);
 create index revisit_items_diary_id_idx on revisit_items (diary_id);
 create index map_members_user_id_idx on map_members (user_id);
@@ -175,6 +184,7 @@ alter table profiles enable row level security;
 alter table maps enable row level security;
 alter table map_members enable row level security;
 alter table diaries enable row level security;
+alter table diary_regions enable row level security;
 alter table diary_photos enable row level security;
 alter table revisit_items enable row level security;
 alter table favorites enable row level security;
@@ -234,6 +244,9 @@ create policy map_members_delete on map_members
 create policy diaries_all on diaries
   for all using (public.is_map_member(map_id)) with check (public.is_map_member(map_id));
 
+create policy diary_regions_all on diary_regions
+  for all using (public.is_diary_member(diary_id)) with check (public.is_diary_member(diary_id));
+
 create policy diary_photos_all on diary_photos
   for all using (public.is_diary_member(diary_id)) with check (public.is_diary_member(diary_id));
 
@@ -254,3 +267,33 @@ grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to anon, authenticated;
 alter default privileges in schema public
   grant select, insert, update, delete on tables to anon, authenticated;
+
+-- =========================================
+-- storage: diary photos
+-- =========================================
+-- private bucket — access is gated by RLS on storage.objects below, same map-membership rule
+-- as everything else. object path convention: `${mapId}/${diaryId}/${filename}`.
+
+insert into storage.buckets (id, name, public)
+values ('diary-photos', 'diary-photos', false)
+on conflict (id) do nothing;
+
+create policy diary_photos_storage_select on storage.objects
+  for select using (
+    bucket_id = 'diary-photos' and public.is_map_member((storage.foldername(name))[1]::uuid)
+  );
+
+create policy diary_photos_storage_insert on storage.objects
+  for insert with check (
+    bucket_id = 'diary-photos' and public.is_map_member((storage.foldername(name))[1]::uuid)
+  );
+
+create policy diary_photos_storage_update on storage.objects
+  for update using (
+    bucket_id = 'diary-photos' and public.is_map_member((storage.foldername(name))[1]::uuid)
+  );
+
+create policy diary_photos_storage_delete on storage.objects
+  for delete using (
+    bucket_id = 'diary-photos' and public.is_map_member((storage.foldername(name))[1]::uuid)
+  );

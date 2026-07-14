@@ -1,14 +1,19 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useMaps } from '../context/MapContext'
 import { supabase } from '../lib/supabase'
 import { Sidebar } from '../components/Sidebar'
 import { CreateMapModal } from '../components/CreateMapModal'
+import { KoreaMap, type KoreaMapHandle } from '../components/KoreaMap'
+import { SearchBar } from '../components/SearchBar'
+import { DiaryForm } from '../components/DiaryForm'
 
 export function HomePage() {
   const { user } = useAuth()
-  const { maps, currentMap, loading } = useMaps()
+  const { maps, loading } = useMaps()
   const [creating, setCreating] = useState(false)
+  const [diaryRegion, setDiaryRegion] = useState<string | null>(null)
+  const mapRef = useRef<KoreaMapHandle>(null)
 
   if (loading) return null
 
@@ -37,19 +42,11 @@ export function HomePage() {
   }
 
   return (
-    <div className="min-h-svh">
+    <div className="relative h-svh overflow-hidden">
       <Sidebar />
-      <div className="flex min-h-svh flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-muted">{currentMap?.name}</p>
-        <p className="text-sm text-muted">지도는 다음 단계에서 이어집니다.</p>
-        <button
-          type="button"
-          onClick={() => supabase.auth.signOut()}
-          className="mt-2 rounded-sm border border-line px-3 py-2 text-sm text-ink"
-        >
-          로그아웃
-        </button>
-      </div>
+      <SearchBar onSelectRegion={(code) => mapRef.current?.focusRegion(code)} />
+      <KoreaMap ref={mapRef} onRegionTap={setDiaryRegion} />
+      {diaryRegion && <DiaryForm initialRegionCode={diaryRegion} onClose={() => setDiaryRegion(null)} />}
     </div>
   )
 }
