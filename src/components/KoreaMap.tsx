@@ -17,13 +17,11 @@ import { useDiaries } from '../context/DiaryContext'
 const VIEW_WIDTH = 800
 const VIEW_HEIGHT = 960
 
-// a region's label only appears once it's big enough on screen at the current zoom. its on-screen
-// font size is recomputed from the live zoom scale (grows as you zoom in) but capped so it never
-// outgrows the region itself or gets absurdly large at extreme zoom.
-const LABEL_MIN_ON_SCREEN_SIZE = 26
-const LABEL_FONT_RATIO = 0.22
-const LABEL_FONT_MIN_PX = 8
-const LABEL_FONT_MAX_PX = 26
+// labels only appear once zoomed in past this scale (otherwise the whole-country view gets
+// cluttered), and every visible label shares the same on-screen size — sized from the current
+// zoom scale alone, not each region's own area, so the map doesn't mix huge and tiny text at once.
+const LABEL_MIN_SCALE = 3
+const LABEL_FONT_PX = 13
 
 // 독도 sits ~1.9 degrees further east than the rest of the country. fitting the projection to
 // the full extent would leave most of the map as empty ocean, so the initial view is fit to the
@@ -87,21 +85,28 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       return geoPath(projection)
     }, [regions])
 
-    // label position + size (in unscaled svg units) per region — only the geometry-derived parts
-    // are memoized here; the actual on-screen font size also depends on the live zoom scale, so
-    // it's computed at render time below.
+    // label position per region — memoized since it only depends on the geometry, not the scale.
     const labelInfo = useMemo(() => {
-      if (!regions || !pathGenerator) return new Map<string, { x: number; y: number; minDim: number }>()
-      const map = new Map<string, { x: number; y: number; minDim: number }>()
+      if (!regions || !pathGenerator) return new Map<string, { x: number; y: number }>()
+      const map = new Map<string, { x: number; y: number }>()
       for (const feature of regions.features) {
-        const [[x0, y0], [x1, y1]] = pathGenerator.bounds(feature)
-        const minDim = Math.min(x1 - x0, y1 - y0)
         const [x, y] = pathGenerator.centroid(feature)
         if (Number.isNaN(x) || Number.isNaN(y)) continue
-        map.set(feature.properties.region_code, { x, y, minDim })
+        map.set(feature.properties.region_code, { x, y })
       }
       return map
     }, [regions, pathGenerator])
+
+    // regions whose representative photo already fills the shape don't need a label on top of it
+    const photoCoveredRegions = useMemo(() => {
+      const codes = new Set<string>()
+      for (const diary of diaries) {
+        const rep = diary.photos.find((p) => p.isRepresentative && p.placement)
+        if (!rep || !photoUrls.get(diary.id)) continue
+        for (const code of diary.regionCodes) codes.add(code)
+      }
+      return codes
+    }, [diaries, photoUrls])
 
     if (!regions || !provinces || !rivers || !pathGenerator) return null
 
@@ -185,23 +190,21 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
               ))}
             </g>
 
-            <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
-              {regions.features.map((feature) => {
-                const info = labelInfo.get(feature.properties.region_code)
-                if (!info) return null
-                const onScreenSize = info.minDim * scale
-                if (onScreenSize < LABEL_MIN_ON_SCREEN_SIZE) return null
-                // clamp in on-screen pixels, then convert back to svg units (divide by scale) so
-                // the rendered size actually respects the cap regardless of zoom level.
-                const onScreenFont = Math.min(LABEL_FONT_MAX_PX, Math.max(LABEL_FONT_MIN_PX, onScreenSize * LABEL_FONT_RATIO))
-                const fontSize = onScreenFont / scale
-                return (
-                  <text key={feature.properties.region_code} x={info.x} y={info.y} fontSize={fontSize}>
-                    {shortLabel(feature.properties.name)}
-                  </text>
-                )
-              })}
-            </g>
+            {scale >= LABEL_MIN_SCALE && (
+              <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
+                {regions.features.map((feature) => {
+                  const code = feature.properties.region_code
+                  if (photoCoveredRegions.has(code)) return null
+                  const info = labelInfo.get(code)
+                  if (!info) return null
+                  return (
+                    <text key={code} x={info.x} y={info.y} fontSize={LABEL_FONT_PX / scale}>
+                      {shortLabel(feature.properties.name)}
+                    </text>
+                  )
+                })}
+              </g>
+            )}
           </svg>
         </TransformComponent>
       </TransformWrapper>
