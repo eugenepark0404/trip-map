@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { geoMercator, geoPath } from 'd3-geo'
 import { loadRegions, type RegionFeature } from '../lib/regions'
 import { boundsOf, imageTransformOf } from '../lib/photoPlacement'
@@ -8,20 +8,19 @@ const EDITOR_SIZE = 320
 
 export function PhotoPlacementEditor({
   regionCodes,
-  file,
+  imageUrl,
   initialPlacement,
   onConfirm,
   onCancel,
 }: {
   regionCodes: string[]
-  file: File
+  imageUrl: string
   initialPlacement?: PhotoPlacement
   onConfirm: (placement: PhotoPlacement) => void
   onCancel: () => void
 }) {
   const [regions, setRegions] = useState<RegionFeature[] | null>(null)
   const [placement, setPlacement] = useState<PhotoPlacement>(initialPlacement ?? { scale: 1, x: 0, y: 0, rotation: 0 })
-  const imageUrl = useMemo(() => URL.createObjectURL(file), [file])
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const gesture = useRef<{ mode: 'pan'; x: number; y: number } | { mode: 'pinch'; distance: number; angle: number } | null>(
     null,
@@ -31,7 +30,6 @@ export function PhotoPlacementEditor({
     loadRegions().then((collection) =>
       setRegions(collection.features.filter((f) => regionCodes.includes(f.properties.region_code))),
     )
-    return () => URL.revokeObjectURL(imageUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -92,7 +90,10 @@ export function PhotoPlacementEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-ink/40 px-4">
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-ink/40 px-4"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div
         className="touch-none overflow-hidden rounded-md border border-line bg-region-empty"
         style={{ width: EDITOR_SIZE, height: EDITOR_SIZE }}

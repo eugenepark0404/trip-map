@@ -11,6 +11,8 @@ type MapContextState = {
   switchMap: (mapId: string) => Promise<void>
   createMap: (name: string, inviteEmails: string[]) => Promise<string>
   inviteMember: (mapId: string, email: string) => Promise<void>
+  toggleFavorite: (mapId: string) => Promise<void>
+  deleteMap: (mapId: string) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -18,7 +20,12 @@ const MapContext = createContext<MapContextState | null>(null)
 
 type MapMemberRow = {
   role: 'owner' | 'member'
+  is_favorite: boolean
   maps: { id: string; name: string } | { id: string; name: string }[] | null
+}
+
+function sortMaps(list: MapSummary[]): MapSummary[] {
+  return [...list].sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite))
 }
 
 export function MapProvider({ children }: { children: ReactNode }) {
@@ -38,7 +45,7 @@ export function MapProvider({ children }: { children: ReactNode }) {
     setLoading(true)
 
     const [{ data: memberRows, error: memberError }, { data: profile }] = await Promise.all([
-      supabase.from('map_members').select('role, maps(id, name)').eq('user_id', user.id),
+      supabase.from('map_members').select('role, is_favorite, maps(id, name)').eq('user_id', user.id),
       supabase.from('profiles').select('default_map_id').eq('id', user.id).single(),
     ])
 
@@ -48,13 +55,15 @@ export function MapProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const list: MapSummary[] = ((memberRows ?? []) as MapMemberRow[])
-      .map((row) => {
-        const map = Array.isArray(row.maps) ? row.maps[0] : row.maps
-        if (!map) return null
-        return { id: map.id, name: map.name, role: row.role }
-      })
-      .filter((m): m is MapSummary => m !== null)
+    const list: MapSummary[] = sortMaps(
+      ((memberRows ?? []) as MapMemberRow[])
+        .map((row) => {
+          const map = Array.isArray(row.maps) ? row.maps[0] : row.maps
+          if (!map) return null
+          return { id: map.id, name: map.name, role: row.role, isFavorite: row.is_favorite }
+        })
+        .filter((m): m is MapSummary => m !== null),
+    )
 
     setMaps(list)
 
@@ -107,11 +116,59 @@ export function MapProvider({ children }: { children: ReactNode }) {
     if (error) throw new Error(error.message)
   }, [])
 
+  const toggleFavorite = useCallback(
+    async (mapId: string) => {
+      if (!user) return
+      const target = maps.find((m) => m.id === mapId)
+      if (!target) return
+      setMaps((prev) => sortMaps(prev.map((m) => (m.id === mapId ? { ...m, isFavorite: !m.isFavorite } : m))))
+      const { error } = await supabase
+        .from('map_members')
+        .update({ is_favorite: !target.isFavorite })
+        .eq('map_id', mapId)
+        .eq('user_id', user.id)
+      if (error) {
+        console.error('즐겨찾기 갱신 실패', error)
+        await refresh()
+      }
+    },
+    [user, maps, refresh],
+  )
+
+  const deleteMap = useCallback(
+    async (mapId: string) => {
+      const { error } = await supabase.from('maps').delete().eq('id', mapId)
+      if (error) throw new Error(error.message)
+
+      if (mapId === currentMapId) {
+        const next = maps.find((m) => m.id !== mapId)?.id ?? null
+        setCurrentMapId(next)
+        if (user && next) {
+          await supabase.from('profiles').update({ default_map_id: next }).eq('id', user.id)
+        }
+      }
+
+      await refresh()
+    },
+    [currentMapId, maps, user, refresh],
+  )
+
   const currentMap = maps.find((m) => m.id === currentMapId) ?? null
 
   return (
     <MapContext.Provider
-      value={{ maps, currentMapId, currentMap, loading, switchMap, createMap, inviteMember, refresh }}
+      value={{
+        maps,
+        currentMapId,
+        currentMap,
+        loading,
+        switchMap,
+        createMap,
+        inviteMember,
+        toggleFavorite,
+        deleteMap,
+        refresh,
+      }}
     >
       {children}
     </MapContext.Provider>

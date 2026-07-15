@@ -27,6 +27,7 @@ create table map_members (
   map_id uuid not null references maps (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
   role text not null check (role in ('owner', 'member')),
+  is_favorite boolean not null default false,
   joined_at timestamptz not null default now(),
   primary key (map_id, user_id)
 );
@@ -238,6 +239,10 @@ create policy map_members_delete on map_members
         and owner_row.role = 'owner'
     )
   );
+
+-- a member can only update their own row (e.g. toggling is_favorite, which is personal)
+create policy map_members_update_own on map_members
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- diaries / photos / revisit items / favorites / bucket items:
 -- any member of the map can read, create, update, delete

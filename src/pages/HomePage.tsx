@@ -6,7 +6,7 @@ import { Sidebar } from '../components/Sidebar'
 import { CreateMapModal } from '../components/CreateMapModal'
 import { KoreaMap, type KoreaMapHandle } from '../components/KoreaMap'
 import { SearchBar } from '../components/SearchBar'
-import { DiaryForm } from '../components/DiaryForm'
+import { RegionDiaryPanel } from '../components/RegionDiaryPanel'
 
 export function HomePage() {
   const { user } = useAuth()
@@ -46,7 +46,7 @@ export function HomePage() {
       <Sidebar />
       <SearchBar onSelectRegion={(code) => mapRef.current?.focusRegion(code)} />
       <KoreaMap ref={mapRef} onRegionTap={setDiaryRegion} />
-      {diaryRegion && <DiaryForm initialRegionCode={diaryRegion} onClose={() => setDiaryRegion(null)} />}
+      {diaryRegion && <RegionDiaryPanel regionCode={diaryRegion} onClose={() => setDiaryRegion(null)} />}
     </div>
   )
 }

@@ -29,20 +29,29 @@ const LABEL_FONT_PX = 13
 // scripts/build-regions.mjs) and reachable by panning, just outside the default viewport.
 const MAX_FIT_LONGITUDE = 130.95
 
+// extra breathing room around the fitted content so edge territories (울릉도, 백령도 등) aren't
+// pinned right against the pannable area's boundary — without this, panning stops exactly at
+// their coastline, making them awkward to reach and to tap near the container edge.
+const FIT_PADDING_RATIO = 0.1
+
 function fitExtent(regions: RegionCollection): Polygon {
   const [[minLon, minLat], [maxLon, maxLat]] = geoBounds(regions)
   const clampedMaxLon = Math.min(maxLon, MAX_FIT_LONGITUDE)
+  const lonPad = (clampedMaxLon - minLon) * FIT_PADDING_RATIO
+  const latPad = (maxLat - minLat) * FIT_PADDING_RATIO
+  const [paddedMinLon, paddedMaxLon] = [minLon - lonPad, clampedMaxLon + lonPad]
+  const [paddedMinLat, paddedMaxLat] = [minLat - latPad, maxLat + latPad]
   // ring must wind clockwise (in plain lon=x/lat=y terms) or d3-geo reads it as covering the
   // entire globe instead of just this box — see the matching note in scripts/build-regions.mjs.
   return {
     type: 'Polygon',
     coordinates: [
       [
-        [minLon, minLat],
-        [minLon, maxLat],
-        [clampedMaxLon, maxLat],
-        [clampedMaxLon, minLat],
-        [minLon, minLat],
+        [paddedMinLon, paddedMinLat],
+        [paddedMinLon, paddedMaxLat],
+        [paddedMaxLon, paddedMaxLat],
+        [paddedMaxLon, paddedMinLat],
+        [paddedMinLon, paddedMinLat],
       ],
     ],
   }
@@ -190,21 +199,22 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
               ))}
             </g>
 
-            {scale >= LABEL_MIN_SCALE && (
-              <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
-                {regions.features.map((feature) => {
-                  const code = feature.properties.region_code
-                  if (photoCoveredRegions.has(code)) return null
-                  const info = labelInfo.get(code)
-                  if (!info) return null
-                  return (
-                    <text key={code} x={info.x} y={info.y} fontSize={LABEL_FONT_PX / scale}>
-                      {shortLabel(feature.properties.name)}
-                    </text>
-                  )
-                })}
-              </g>
-            )}
+            <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
+              {regions.features.map((feature) => {
+                const code = feature.properties.region_code
+                // 독도 always keeps its label — real-world importance aside, its landmass is tiny
+                // enough that without a permanent label it'd be nearly impossible to find by panning.
+                if (code !== 'dokdo' && scale < LABEL_MIN_SCALE) return null
+                if (photoCoveredRegions.has(code)) return null
+                const info = labelInfo.get(code)
+                if (!info) return null
+                return (
+                  <text key={code} x={info.x} y={info.y} fontSize={LABEL_FONT_PX / scale}>
+                    {shortLabel(feature.properties.name)}
+                  </text>
+                )
+              })}
+            </g>
           </svg>
         </TransformComponent>
       </TransformWrapper>

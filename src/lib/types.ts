@@ -4,6 +4,7 @@ export type MapSummary = {
   id: string
   name: string
   role: MapRole
+  isFavorite: boolean
 }
 
 export type PhotoPlacement = {
@@ -38,12 +39,18 @@ export type Diary = {
   photos: DiaryPhoto[]
 }
 
-export type NewDiaryInput = {
+export type NewPhoto = {
+  file: File
+  isRepresentative: boolean
+  placement: PhotoPlacement | null
+}
+
+export type DiaryInput = {
   date: string
   body: string
   satisfaction: number | null
   revisit: boolean
   regionCodes: string[]
   revisitItems: string[]
-  representativePhoto: { file: File; placement: PhotoPlacement } | null
+  newPhotos: NewPhoto[]
 }

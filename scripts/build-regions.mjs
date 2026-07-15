@@ -6,12 +6,16 @@
 //
 // the source is 행정동-level for the whole country. we dissolve emd features up to the
 // granularity each region of the app needs:
-// - Seoul / Incheon / Gyeonggi / Gangwon / Chungbuk / Chungnam / Jeonbuk / Jeonnam / Gyeongbuk /
-//   Gyeongnam: dissolve to 시군구 (sgg) level (Gyeonggi's split cities like 수원시 come out as
-//   their 자치구, since those are themselves sgg-level units in the source).
+// - Seoul / Incheon: dissolve to 시군구 (sgg) level, i.e. their 자치구 — the only two places that
+//   keep gu-level detail.
+// - Everywhere else (Gyeonggi / Gangwon / Chungbuk / Chungnam / Jeonbuk / Jeonnam / Gyeongbuk /
+//   Gyeongnam): normal 시/군 stay as their own sgg, but any city internally split into 자치구
+//   (수원시장안구, 전주시완산구, 청주시상당구, 천안시동남구, 포항시남구, 창원시의창구, …) is
+//   dissolved back into a single polygon for the whole city, detected by the "OO시OO구" naming
+//   pattern in the source and merged by that city-name prefix.
 // - Busan / Daegu / Daejeon / Ulsan / Gwangju: dissolved into a single polygon per city — no
-//   자치구-level breakdown for these. Sejong has no gu layer in the source at all (a single sgg
-//   covering all of its 읍면동), so it's already one polygon regardless.
+//   자치구-level breakdown for these either. Sejong has no gu layer in the source at all (a single
+//   sgg covering all of its 읍면동), so it's already one polygon regardless.
 // - Gwangju: as of this source, Gwangju's sido code is merged with Jeollanam-do
 //   ("전남광주통합특별시"). Gwangju's original 5 자치구 (동구/서구/남구/북구/광산구) are
 //   identified by name and dissolved into one "광주광역시" polygon; the other 22 시/군 stay at
@@ -75,6 +79,12 @@ const GWANGJU_GU_NAMES = new Set(['동구', '서구', '남구', '북구', '광�
 // its 시군구/자치구 level. Gwangju is handled separately since its sido is shared with Jeonnam.
 const METRO_DISSOLVE_SIDOS = new Set(['26', '27', '30', '31'])
 
+// only Seoul and Incheon keep 자치구-level detail for cities that are internally split into
+// districts (수원시장안구 등); everywhere else, e.g. 수원시/전주시/청주시/천안시/포항시/창원시,
+// those districts get dissolved back into one polygon for the whole city.
+const KEEP_GU_SPLIT_SIDOS = new Set(['11', '28'])
+const SPLIT_CITY_NAME = /^(.+시)(.+구)$/
+
 // adm_cd2 -> display name, for emd that should stand alone instead of joining their sgg's dissolve
 const ISLAND_EMD_OVERRIDES = {
   '2872033000': '백령도', // 옹진군 백령면
@@ -118,6 +128,7 @@ async function main() {
 
   const output = []
   const sggGroups = new Map() // sgg code -> { name, province_code, features }
+  const cityGroups = new Map() // "sido:cityName" -> { name, regionCode, province_code, features }
   const metroGroups = new Map() // sido code -> features
   const gwangjuFeatures = []
 
@@ -154,6 +165,15 @@ async function main() {
     }
 
     const provinceCode = sido === GWANGJU_IN_JEONNAM_SIDO ? 'jeonnam' : sido
+    const splitCityMatch = !KEEP_GU_SPLIT_SIDOS.has(sido) && sggnm.match(SPLIT_CITY_NAME)
+
+    if (splitCityMatch) {
+      const cityName = splitCityMatch[1]
+      const key = `${sido}:${cityName}`
+      if (!cityGroups.has(key)) cityGroups.set(key, { name: cityName, regionCode: sgg, provinceCode, features: [] })
+      cityGroups.get(key).features.push({ geometry })
+      continue
+    }
 
     if (!sggGroups.has(sgg)) sggGroups.set(sgg, { name: sggnm, provinceCode, features: [] })
     sggGroups.get(sgg).features.push({ geometry })
@@ -163,6 +183,16 @@ async function main() {
     output.push(
       regionFeature(dissolveGroup(group.features), {
         region_code: sgg,
+        name: group.name,
+        province_code: group.provinceCode,
+      }),
+    )
+  }
+
+  for (const group of cityGroups.values()) {
+    output.push(
+      regionFeature(dissolveGroup(group.features), {
+        region_code: group.regionCode,
         name: group.name,
         province_code: group.provinceCode,
       }),
