@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { geoBounds, geoMercator, geoPath } from 'd3-geo'
 import type { Polygon } from 'geojson'
 import { TransformWrapper, TransformComponent, type ReactZoomPanPinchContentRef } from 'react-zoom-pan-pinch'
@@ -15,7 +15,15 @@ import { useDiaries } from '../context/DiaryContext'
 
 const VIEW_WIDTH = 800
 const VIEW_HEIGHT = 960
-const LABEL_MIN_SCALE = 3
+
+// a region's label only appears once it's big enough on screen at the current zoom, and its
+// font size is fixed relative to the region's own size — since both the shape and the label
+// scale together with the surrounding pinch-zoom transform, that ratio (and so legibility) stays
+// constant at any zoom level once it appears.
+const LABEL_MIN_ON_SCREEN_SIZE = 26
+const LABEL_FONT_RATIO = 0.22
+const LABEL_FONT_MIN = 2
+const LABEL_FONT_MAX = 11
 
 // 독도 sits ~1.9 degrees further east than the rest of the country. fitting the projection to
 // the full extent would leave most of the map as empty ocean, so the initial view is fit to the
@@ -69,17 +77,37 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       },
     }))
 
-    if (!regions || !provinces) return null
+    const pathGenerator = useMemo(() => {
+      if (!regions) return null
+      const projection = geoMercator().fitSize([VIEW_WIDTH, VIEW_HEIGHT], fitExtent(regions))
+      return geoPath(projection)
+    }, [regions])
 
-    const projection = geoMercator().fitSize([VIEW_WIDTH, VIEW_HEIGHT], fitExtent(regions))
-    const pathGenerator = geoPath(projection)
+    // label position/size per region, fixed relative to that region's own geometry — computed
+    // once (not on every zoom tick) since it doesn't depend on the current scale.
+    const labelInfo = useMemo(() => {
+      if (!regions || !pathGenerator) return new Map<string, { x: number; y: number; fontSize: number; minDim: number }>()
+      const map = new Map<string, { x: number; y: number; fontSize: number; minDim: number }>()
+      for (const feature of regions.features) {
+        const [[x0, y0], [x1, y1]] = pathGenerator.bounds(feature)
+        const minDim = Math.min(x1 - x0, y1 - y0)
+        const [x, y] = pathGenerator.centroid(feature)
+        if (Number.isNaN(x) || Number.isNaN(y)) continue
+        const fontSize = Math.min(LABEL_FONT_MAX, Math.max(LABEL_FONT_MIN, minDim * LABEL_FONT_RATIO))
+        map.set(feature.properties.region_code, { x, y, fontSize, minDim })
+      }
+      return map
+    }, [regions, pathGenerator])
+
+    if (!regions || !provinces || !pathGenerator) return null
+
     const byCode = new Map(regions.features.map((f) => [f.properties.region_code, f]))
 
     return (
       <TransformWrapper
         ref={transformRef}
         minScale={1}
-        maxScale={12}
+        maxScale={40}
         initialScale={1}
         centerOnInit
         doubleClick={{ mode: 'zoomIn' }}
@@ -147,19 +175,17 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
               ))}
             </g>
 
-            {scale >= LABEL_MIN_SCALE && (
-              <g className="fill-ink" style={{ pointerEvents: 'none' }} textAnchor="middle">
-                {regions.features.map((feature) => {
-                  const [x, y] = pathGenerator.centroid(feature)
-                  if (Number.isNaN(x) || Number.isNaN(y)) return null
-                  return (
-                    <text key={feature.properties.region_code} x={x} y={y} fontSize={5}>
-                      {shortLabel(feature.properties.name)}
-                    </text>
-                  )
-                })}
-              </g>
-            )}
+            <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
+              {regions.features.map((feature) => {
+                const info = labelInfo.get(feature.properties.region_code)
+                if (!info || info.minDim * scale < LABEL_MIN_ON_SCREEN_SIZE) return null
+                return (
+                  <text key={feature.properties.region_code} x={info.x} y={info.y} fontSize={info.fontSize}>
+                    {shortLabel(feature.properties.name)}
+                  </text>
+                )
+              })}
+            </g>
           </svg>
         </TransformComponent>
       </TransformWrapper>

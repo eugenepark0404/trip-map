@@ -15,23 +15,8 @@
   --color-province-stroke: #a1a1aa;
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-bg: #0f0f10;
-    --color-ink: #f4f4f5;
-    --color-muted: #a1a1aa;
-    --color-line: #2a2a2d;
-    --color-accent: #2dd4bf;
-    --color-accent-ink: #0f0f10;
-    --color-region-empty: #1c1c1f;
-    --color-region-filled: #1f3f3b;
-    --color-region-stroke: #3f3f46;
-    --color-province-stroke: #6b6b70;
-  }
-}
-
 html {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
