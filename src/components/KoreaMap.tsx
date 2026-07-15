@@ -10,20 +10,20 @@ import {
   type RegionFeature,
   type ProvinceCollection,
 } from '../lib/regions'
+import { loadRivers, type RiverCollection } from '../lib/rivers'
 import { boundsOf, imageTransformOf } from '../lib/photoPlacement'
 import { useDiaries } from '../context/DiaryContext'
 
 const VIEW_WIDTH = 800
 const VIEW_HEIGHT = 960
 
-// a region's label only appears once it's big enough on screen at the current zoom, and its
-// font size is fixed relative to the region's own size — since both the shape and the label
-// scale together with the surrounding pinch-zoom transform, that ratio (and so legibility) stays
-// constant at any zoom level once it appears.
+// a region's label only appears once it's big enough on screen at the current zoom. its on-screen
+// font size is recomputed from the live zoom scale (grows as you zoom in) but capped so it never
+// outgrows the region itself or gets absurdly large at extreme zoom.
 const LABEL_MIN_ON_SCREEN_SIZE = 26
 const LABEL_FONT_RATIO = 0.22
-const LABEL_FONT_MIN = 2
-const LABEL_FONT_MAX = 11
+const LABEL_FONT_MIN_PX = 8
+const LABEL_FONT_MAX_PX = 26
 
 // 독도 sits ~1.9 degrees further east than the rest of the country. fitting the projection to
 // the full extent would leave most of the map as empty ocean, so the initial view is fit to the
@@ -58,6 +58,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
   ({ onRegionTap }, ref) => {
     const [regions, setRegions] = useState<RegionCollection | null>(null)
     const [provinces, setProvinces] = useState<ProvinceCollection | null>(null)
+    const [rivers, setRivers] = useState<RiverCollection | null>(null)
     const [scale, setScale] = useState(1)
     const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null)
     const { diaries, regionToDiary, photoUrls } = useDiaries()
@@ -69,6 +70,9 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       loadProvinces()
         .then(setProvinces)
         .catch((err) => console.error('시도 경계 로드 실패', err))
+      loadRivers()
+        .then(setRivers)
+        .catch((err) => console.error('하천 데이터 로드 실패', err))
     }, [])
 
     useImperativeHandle(ref, () => ({
@@ -83,23 +87,23 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       return geoPath(projection)
     }, [regions])
 
-    // label position/size per region, fixed relative to that region's own geometry — computed
-    // once (not on every zoom tick) since it doesn't depend on the current scale.
+    // label position + size (in unscaled svg units) per region — only the geometry-derived parts
+    // are memoized here; the actual on-screen font size also depends on the live zoom scale, so
+    // it's computed at render time below.
     const labelInfo = useMemo(() => {
-      if (!regions || !pathGenerator) return new Map<string, { x: number; y: number; fontSize: number; minDim: number }>()
-      const map = new Map<string, { x: number; y: number; fontSize: number; minDim: number }>()
+      if (!regions || !pathGenerator) return new Map<string, { x: number; y: number; minDim: number }>()
+      const map = new Map<string, { x: number; y: number; minDim: number }>()
       for (const feature of regions.features) {
         const [[x0, y0], [x1, y1]] = pathGenerator.bounds(feature)
         const minDim = Math.min(x1 - x0, y1 - y0)
         const [x, y] = pathGenerator.centroid(feature)
         if (Number.isNaN(x) || Number.isNaN(y)) continue
-        const fontSize = Math.min(LABEL_FONT_MAX, Math.max(LABEL_FONT_MIN, minDim * LABEL_FONT_RATIO))
-        map.set(feature.properties.region_code, { x, y, fontSize, minDim })
+        map.set(feature.properties.region_code, { x, y, minDim })
       }
       return map
     }, [regions, pathGenerator])
 
-    if (!regions || !provinces || !pathGenerator) return null
+    if (!regions || !provinces || !rivers || !pathGenerator) return null
 
     const byCode = new Map(regions.features.map((f) => [f.properties.region_code, f]))
 
@@ -110,7 +114,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
         maxScale={40}
         initialScale={1}
         centerOnInit
-        doubleClick={{ mode: 'zoomIn' }}
+        doubleClick={{ disabled: true }}
         onTransform={(_ref, state) => setScale(state.scale)}
       >
         <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%' }}>
@@ -120,7 +124,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
                 key={feature.properties.region_code}
                 id={`region-${feature.properties.region_code}`}
                 d={pathGenerator(feature) ?? undefined}
-                onClick={() => onRegionTap(feature.properties.region_code)}
+                onDoubleClick={() => onRegionTap(feature.properties.region_code)}
                 className={
                   regionToDiary.has(feature.properties.region_code)
                     ? 'fill-region-filled stroke-region-stroke transition-colors'
@@ -130,6 +134,12 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+
+            <g fill="none" className="stroke-river" strokeWidth={1.6} strokeLinecap="round" vectorEffect="non-scaling-stroke">
+              {rivers.features.map((feature, i) => (
+                <path key={i} d={pathGenerator(feature) ?? undefined} />
+              ))}
+            </g>
 
             {diaries.map((diary) => {
               const rep = diary.photos.find((p) => p.isRepresentative && p.placement)
@@ -178,9 +188,15 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
             <g className="fill-muted" style={{ pointerEvents: 'none' }} textAnchor="middle">
               {regions.features.map((feature) => {
                 const info = labelInfo.get(feature.properties.region_code)
-                if (!info || info.minDim * scale < LABEL_MIN_ON_SCREEN_SIZE) return null
+                if (!info) return null
+                const onScreenSize = info.minDim * scale
+                if (onScreenSize < LABEL_MIN_ON_SCREEN_SIZE) return null
+                // clamp in on-screen pixels, then convert back to svg units (divide by scale) so
+                // the rendered size actually respects the cap regardless of zoom level.
+                const onScreenFont = Math.min(LABEL_FONT_MAX_PX, Math.max(LABEL_FONT_MIN_PX, onScreenSize * LABEL_FONT_RATIO))
+                const fontSize = onScreenFont / scale
                 return (
-                  <text key={feature.properties.region_code} x={info.x} y={info.y} fontSize={info.fontSize}>
+                  <text key={feature.properties.region_code} x={info.x} y={info.y} fontSize={fontSize}>
                     {shortLabel(feature.properties.name)}
                   </text>
                 )

@@ -6,16 +6,18 @@
 //
 // the source is 행정동-level for the whole country. we dissolve emd features up to the
 // granularity each region of the app needs:
-// - everywhere except a few named islands (below): dissolve to 시군구 (sgg) level — this
-//   naturally includes the 자치구 of every metro city (Seoul/Busan/Daegu/Incheon/Daejeon/Ulsan/
-//   Gwangju), since a metro's gu/gun are themselves sgg-level units. Sejong has no gu layer in
-//   the source (a single sgg covering all of its 읍면동), so it comes out as one polygon
-//   regardless. Jeju is just its 2 시 (제주시/서귀포시) — 읍면동 level was tried and turned out
-//   too fragmented for this app's purposes.
+// - Seoul / Incheon / Gyeonggi / Gangwon / Chungbuk / Chungnam / Jeonbuk / Jeonnam / Gyeongbuk /
+//   Gyeongnam: dissolve to 시군구 (sgg) level (Gyeonggi's split cities like 수원시 come out as
+//   their 자치구, since those are themselves sgg-level units in the source).
+// - Busan / Daegu / Daejeon / Ulsan / Gwangju: dissolved into a single polygon per city — no
+//   자치구-level breakdown for these. Sejong has no gu layer in the source at all (a single sgg
+//   covering all of its 읍면동), so it's already one polygon regardless.
 // - Gwangju: as of this source, Gwangju's sido code is merged with Jeollanam-do
 //   ("전남광주통합특별시"). Gwangju's original 5 자치구 (동구/서구/남구/북구/광산구) are
-//   identified by name and grouped under a separate 'gwangju' province_code so the app's
-//   "찾기" hierarchy still lists Gwangju and Jeonnam as separate provinces.
+//   identified by name and dissolved into one "광주광역시" polygon; the other 22 시/군 stay at
+//   sgg level under 전라남도.
+// - Jeju is just its 2 시 (제주시/서귀포시) — 읍면동 level was tried and turned out too
+//   fragmented for this app's purposes.
 // - named islands (백령도/연평도/대부도/독도): pulled out of their parent 시군구 as their own
 //   region rather than folded into the mainland county's polygon, since they're a separate trip
 //   destination in practice. 백령도/연평도/대부도 already have their own 행정동 code in the
@@ -66,6 +68,10 @@ const SOURCE_URL = `https://raw.githubusercontent.com/vuski/admdongkor/master/${
 const GWANGJU_IN_JEONNAM_SIDO = '12'
 const GWANGJU_GU_NAMES = new Set(['동구', '서구', '남구', '북구', '광산구'])
 
+// metro cities dissolved into a single polygon (no 자치구 breakdown) — everything else keeps
+// its 시군구/자치구 level. Gwangju is handled separately since its sido is shared with Jeonnam.
+const METRO_DISSOLVE_SIDOS = new Set(['26', '27', '30', '31'])
+
 // adm_cd2 -> display name, for emd that should stand alone instead of joining their sgg's dissolve
 const ISLAND_EMD_OVERRIDES = {
   '2872033000': '백령도', // 옹진군 백령면
@@ -109,6 +115,8 @@ async function main() {
 
   const output = []
   const sggGroups = new Map() // sgg code -> { name, province_code, features }
+  const metroGroups = new Map() // sido code -> features
+  const gwangjuFeatures = []
 
   for (const f of source.features) {
     const { sido, sgg, sggnm } = f.properties
@@ -131,8 +139,18 @@ async function main() {
       output.push(regionFeature(dokdo, { region_code: 'dokdo', name: '독도', province_code: sido }))
     }
 
-    const provinceCode =
-      sido === GWANGJU_IN_JEONNAM_SIDO ? (GWANGJU_GU_NAMES.has(sggnm) ? 'gwangju' : 'jeonnam') : sido
+    if (sido === GWANGJU_IN_JEONNAM_SIDO && GWANGJU_GU_NAMES.has(sggnm)) {
+      gwangjuFeatures.push({ geometry })
+      continue
+    }
+
+    if (METRO_DISSOLVE_SIDOS.has(sido)) {
+      if (!metroGroups.has(sido)) metroGroups.set(sido, [])
+      metroGroups.get(sido).push({ geometry })
+      continue
+    }
+
+    const provinceCode = sido === GWANGJU_IN_JEONNAM_SIDO ? 'jeonnam' : sido
 
     if (!sggGroups.has(sgg)) sggGroups.set(sgg, { name: sggnm, provinceCode, features: [] })
     sggGroups.get(sgg).features.push({ geometry })
@@ -147,6 +165,24 @@ async function main() {
       }),
     )
   }
+
+  for (const [sido, features] of metroGroups) {
+    output.push(
+      regionFeature(dissolveGroup(features), {
+        region_code: `metro-${sido}`,
+        name: PROVINCE_NAMES[sido],
+        province_code: sido,
+      }),
+    )
+  }
+
+  output.push(
+    regionFeature(dissolveGroup(gwangjuFeatures), {
+      region_code: 'metro-gwangju',
+      name: '광주광역시',
+      province_code: 'gwangju',
+    }),
+  )
 
   // province-level (시도) outlines, for a thicker boundary drawn over the regular thin ones —
   // dissolved from the same regions above rather than the raw source, so it lines up exactly.
