@@ -36,6 +36,9 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import * as turf from '@turf/turf'
+import { topology } from 'topojson-server'
+import { presimplify, simplify, quantile, filter as topoFilter } from 'topojson-simplify'
+import { feature as topoFeature } from 'topojson-client'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const outPath = join(__dirname, '..', 'public', 'regions.geojson')
@@ -196,21 +199,36 @@ async function main() {
     regionFeature(dissolveGroup(features), { province_code: code, name: PROVINCE_NAMES[code] ?? code }),
   )
 
-  // turf.union's output winds exterior rings the opposite way d3-geo expects (the source data's
-  // own winding is already correct — this only matters for dissolved features, but rewinding
-  // everything is a harmless no-op on the rest). Without this, d3.geoBounds/geoPath silently
-  // misreads a dissolved polygon as covering the whole globe instead of just that region.
-  const rewound = turf.rewind(turf.featureCollection(output), { reverse: true, mutate: true })
-  const provincesRewound = turf.rewind(turf.featureCollection(provinceOutput), { reverse: true, mutate: true })
+  // union() occasionally leaves tiny interior-ring artifacts where adjacent source polygons
+  // didn't tile perfectly (they render as a stray thin loop "floating" inside the shape) — none
+  // of these regions should legitimately have a hole, so drop every interior ring outright.
+  // building one shared topology across regions + provinces (instead of simplifying each
+  // FeatureCollection separately with turf.simplify) means their common borders are simplified
+  // identically, so adjacent shapes stay seamless instead of drifting apart into gap/overlap
+  // slivers.
+  let topo = topology({ regions: turf.featureCollection(output), provinces: turf.featureCollection(provinceOutput) })
+  topo = topoFilter(topo, (_ring, interior) => !interior)
+  topo = presimplify(topo)
+  topo = simplify(topo, quantile(topo, 0.15))
 
-  // the source is full-resolution; simplify or this file is ~12MB
-  const simplified = turf.simplify(rewound, { tolerance: 0.004, highQuality: false, mutate: true })
-  const provincesSimplified = turf.simplify(provincesRewound, { tolerance: 0.004, highQuality: false, mutate: true })
+  const regionsGeo = topoFeature(topo, topo.objects.regions)
+  const provincesGeo = topoFeature(topo, topo.objects.provinces)
 
-  writeFileSync(outPath, JSON.stringify(simplified))
-  writeFileSync(provincesOutPath, JSON.stringify(provincesSimplified))
+  // topojson uses the shapefile winding convention (opposite of GeoJSON's RFC 7946), which is
+  // also what our dissolved features end up in — but d3-geo expects clockwise exteriors in plain
+  // lon/lat terms, so this still needs the same rewind as before (see note above).
+  const rewound = turf.rewind(regionsGeo, { reverse: true, mutate: true })
+  const provincesRewound = turf.rewind(provincesGeo, { reverse: true, mutate: true })
 
-  const bbox = turf.bbox(simplified)
+  // presimplify/simplify drop topojson's integer delta-encoding, leaving long float coordinates —
+  // round back down to ~1m precision or the JSON text balloons regardless of point count.
+  const truncated = turf.truncate(rewound, { precision: 5, mutate: true })
+  const provincesTruncated = turf.truncate(provincesRewound, { precision: 5, mutate: true })
+
+  writeFileSync(outPath, JSON.stringify(truncated))
+  writeFileSync(provincesOutPath, JSON.stringify(provincesTruncated))
+
+  const bbox = turf.bbox(rewound)
   console.log(`regions: ${output.length} features (source ${SOURCE_VERSION})`)
   console.log(`provinces: ${provinceOutput.length} features`)
   console.log(`bbox: [${bbox.join(', ')}]`)
