@@ -37,6 +37,28 @@ import * as turf from '@turf/turf'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const outPath = join(__dirname, '..', 'public', 'regions.geojson')
+const provincesOutPath = join(__dirname, '..', 'public', 'provinces.geojson')
+
+// must match PROVINCE_NAMES in src/lib/regions.ts
+const PROVINCE_NAMES = {
+  11: '서울특별시',
+  26: '부산광역시',
+  27: '대구광역시',
+  28: '인천광역시',
+  30: '대전광역시',
+  31: '울산광역시',
+  36: '세종특별자치시',
+  41: '경기도',
+  43: '충청북도',
+  44: '충청남도',
+  47: '경상북도',
+  48: '경상남도',
+  50: '제주특별자치도',
+  51: '강원특별자치도',
+  52: '전북특별자치도',
+  gwangju: '광주광역시',
+  jeonnam: '전라남도',
+}
 
 const SOURCE_VERSION = 'ver20260701'
 const SOURCE_URL = `https://raw.githubusercontent.com/vuski/admdongkor/master/${SOURCE_VERSION}/HangJeongDong_${SOURCE_VERSION}.geojson`
@@ -126,21 +148,38 @@ async function main() {
     )
   }
 
+  // province-level (시도) outlines, for a thicker boundary drawn over the regular thin ones —
+  // dissolved from the same regions above rather than the raw source, so it lines up exactly.
+  const provinceGroups = new Map() // province_code -> features
+  for (const feature of output) {
+    const code = feature.properties.province_code
+    if (!provinceGroups.has(code)) provinceGroups.set(code, [])
+    provinceGroups.get(code).push(feature)
+  }
+  const provinceOutput = [...provinceGroups.entries()].map(([code, features]) =>
+    regionFeature(dissolveGroup(features), { province_code: code, name: PROVINCE_NAMES[code] ?? code }),
+  )
+
   // turf.union's output winds exterior rings the opposite way d3-geo expects (the source data's
   // own winding is already correct — this only matters for dissolved features, but rewinding
   // everything is a harmless no-op on the rest). Without this, d3.geoBounds/geoPath silently
   // misreads a dissolved polygon as covering the whole globe instead of just that region.
   const rewound = turf.rewind(turf.featureCollection(output), { reverse: true, mutate: true })
+  const provincesRewound = turf.rewind(turf.featureCollection(provinceOutput), { reverse: true, mutate: true })
 
   // the source is full-resolution; simplify or this file is ~12MB
   const simplified = turf.simplify(rewound, { tolerance: 0.004, highQuality: false, mutate: true })
+  const provincesSimplified = turf.simplify(provincesRewound, { tolerance: 0.004, highQuality: false, mutate: true })
 
   writeFileSync(outPath, JSON.stringify(simplified))
+  writeFileSync(provincesOutPath, JSON.stringify(provincesSimplified))
 
   const bbox = turf.bbox(simplified)
   console.log(`regions: ${output.length} features (source ${SOURCE_VERSION})`)
+  console.log(`provinces: ${provinceOutput.length} features`)
   console.log(`bbox: [${bbox.join(', ')}]`)
   console.log(`wrote ${outPath}`)
+  console.log(`wrote ${provincesOutPath}`)
 }
 
 main().catch((err) => {

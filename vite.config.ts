@@ -17,8 +17,8 @@ export default defineConfig({
         description: '지도 위에 쌓는 국내 여행 기록',
         start_url: '/',
         display: 'standalone',
-        background_color: '#faf8f3',
-        theme_color: '#faf8f3',
+        background_color: '#fafafa',
+        theme_color: '#fafafa',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },

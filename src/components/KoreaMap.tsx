@@ -2,12 +2,20 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { geoBounds, geoMercator, geoPath } from 'd3-geo'
 import type { Polygon } from 'geojson'
 import { TransformWrapper, TransformComponent, type ReactZoomPanPinchContentRef } from 'react-zoom-pan-pinch'
-import { loadRegions, type RegionCollection, type RegionFeature } from '../lib/regions'
+import {
+  loadRegions,
+  loadProvinces,
+  shortLabel,
+  type RegionCollection,
+  type RegionFeature,
+  type ProvinceCollection,
+} from '../lib/regions'
 import { boundsOf, imageTransformOf } from '../lib/photoPlacement'
 import { useDiaries } from '../context/DiaryContext'
 
 const VIEW_WIDTH = 800
 const VIEW_HEIGHT = 960
+const LABEL_MIN_SCALE = 3
 
 // 독도 sits ~1.9 degrees further east than the rest of the country. fitting the projection to
 // the full extent would leave most of the map as empty ocean, so the initial view is fit to the
@@ -41,6 +49,8 @@ export type KoreaMapHandle = {
 export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: string) => void }>(
   ({ onRegionTap }, ref) => {
     const [regions, setRegions] = useState<RegionCollection | null>(null)
+    const [provinces, setProvinces] = useState<ProvinceCollection | null>(null)
+    const [scale, setScale] = useState(1)
     const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null)
     const { diaries, regionToDiary, photoUrls } = useDiaries()
 
@@ -48,6 +58,9 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       loadRegions()
         .then(setRegions)
         .catch((err) => console.error('지역 경계 로드 실패', err))
+      loadProvinces()
+        .then(setProvinces)
+        .catch((err) => console.error('시도 경계 로드 실패', err))
     }, [])
 
     useImperativeHandle(ref, () => ({
@@ -56,7 +69,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
       },
     }))
 
-    if (!regions) return null
+    if (!regions || !provinces) return null
 
     const projection = geoMercator().fitSize([VIEW_WIDTH, VIEW_HEIGHT], fitExtent(regions))
     const pathGenerator = geoPath(projection)
@@ -70,6 +83,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
         initialScale={1}
         centerOnInit
         doubleClick={{ mode: 'zoomIn' }}
+        onTransform={(_ref, state) => setScale(state.scale)}
       >
         <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%' }}>
           <svg viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="h-full w-full">
@@ -84,7 +98,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
                     ? 'fill-region-filled stroke-region-stroke transition-colors'
                     : 'fill-region-empty stroke-region-stroke transition-colors'
                 }
-                strokeWidth={0.4}
+                strokeWidth={0.25}
                 vectorEffect="non-scaling-stroke"
               />
             ))}
@@ -126,6 +140,26 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
                 </g>
               )
             })}
+
+            <g fill="none" className="stroke-province-stroke" strokeWidth={1.4} vectorEffect="non-scaling-stroke">
+              {provinces.features.map((feature) => (
+                <path key={feature.properties.province_code} d={pathGenerator(feature) ?? undefined} />
+              ))}
+            </g>
+
+            {scale >= LABEL_MIN_SCALE && (
+              <g className="fill-ink" style={{ pointerEvents: 'none' }} textAnchor="middle">
+                {regions.features.map((feature) => {
+                  const [x, y] = pathGenerator.centroid(feature)
+                  if (Number.isNaN(x) || Number.isNaN(y)) return null
+                  return (
+                    <text key={feature.properties.region_code} x={x} y={y} fontSize={5}>
+                      {shortLabel(feature.properties.name)}
+                    </text>
+                  )
+                })}
+              </g>
+            )}
           </svg>
         </TransformComponent>
       </TransformWrapper>

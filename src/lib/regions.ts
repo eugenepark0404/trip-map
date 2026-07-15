@@ -9,6 +9,14 @@ export type RegionProperties = {
 export type RegionFeature = Feature<Geometry, RegionProperties>
 export type RegionCollection = FeatureCollection<Geometry, RegionProperties>
 
+export type ProvinceProperties = {
+  province_code: string
+  name: string
+}
+
+export type ProvinceFeature = Feature<Geometry, ProvinceProperties>
+export type ProvinceCollection = FeatureCollection<Geometry, ProvinceProperties>
+
 export const PROVINCE_NAMES: Record<string, string> = {
   '11': '서울특별시',
   '26': '부산광역시',
@@ -39,6 +47,24 @@ export function loadRegions(): Promise<RegionCollection> {
     })
   }
   return cache
+}
+
+let provinceCache: Promise<ProvinceCollection> | null = null
+
+export function loadProvinces(): Promise<ProvinceCollection> {
+  if (!provinceCache) {
+    provinceCache = fetch('/provinces.geojson').then((res) => {
+      if (!res.ok) throw new Error('시도 경계 데이터를 불러오지 못했습니다.')
+      return res.json()
+    })
+  }
+  return provinceCache
+}
+
+// "안산시단원구" -> "단원구": on-map labels for split-city districts show just the district part.
+export function shortLabel(name: string): string {
+  const match = name.match(/^(.+시)(.+구)$/)
+  return match ? match[2] : name
 }
 
 export function groupByProvince(collection: RegionCollection): Map<string, RegionFeature[]> {
