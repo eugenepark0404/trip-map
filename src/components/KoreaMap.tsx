@@ -9,10 +9,10 @@ import { useDiaries } from '../context/DiaryContext'
 const VIEW_WIDTH = 800
 const VIEW_HEIGHT = 960
 
-// 울릉군 geometry includes 독도, ~1.9 degrees further east than the rest of the country.
-// fitting the projection to the full extent would leave most of the map as empty ocean,
-// so the initial view is fit to the mainland + Jeju instead; 독도 is still real data and
-// reachable by panning, just outside the default viewport.
+// 독도 sits ~1.9 degrees further east than the rest of the country. fitting the projection to
+// the full extent would leave most of the map as empty ocean, so the initial view is fit to the
+// mainland + Jeju instead; 독도 is still real data (its own region, split out from 울릉군 in
+// scripts/build-regions.mjs) and reachable by panning, just outside the default viewport.
 const MAX_FIT_LONGITUDE = 130.95
 
 function fitExtent(regions: RegionCollection): Polygon {
@@ -84,7 +84,7 @@ export const KoreaMap = forwardRef<KoreaMapHandle, { onRegionTap: (regionCode: s
                     ? 'fill-region-filled stroke-region-stroke transition-colors'
                     : 'fill-region-empty stroke-region-stroke transition-colors'
                 }
-                strokeWidth={0.75}
+                strokeWidth={0.4}
                 vectorEffect="non-scaling-stroke"
               />
             ))}
