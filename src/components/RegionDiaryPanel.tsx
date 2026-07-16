@@ -20,6 +20,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
   const [bucketItems, setBucketItems] = useState<BucketItem[]>([])
   const [expanded, setExpanded] = useState(false)
   const [isFavorite, setIsFavorite] = useState(false)
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
   const userToggledFavorite = useRef(false)
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
   async function toggleFavorite() {
     if (!currentMapId || !user) return
     userToggledFavorite.current = true
+    setFavoriteError(null)
     const next = !isFavorite
     setIsFavorite(next) // reflect immediately; roll back if the write fails
     const { error } = next
@@ -84,6 +86,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
     if (error) {
       console.error('즐겨찾기 갱신 실패', error)
       setIsFavorite(!next)
+      setFavoriteError('즐겨찾기 갱신에 실패했습니다. 다시 시도해주세요.')
     }
   }
 
@@ -133,6 +136,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
             ★
           </button>
         </div>
+        {favoriteError && <p className="mb-3 -mt-2 text-xs text-accent">{favoriteError}</p>}
 
         {diaries.length === 0 && bucketItems.length === 0 ? (
           <p className="text-sm text-muted">아직 작성한 다이어리가 없습니다.</p>

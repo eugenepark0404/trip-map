@@ -27,6 +27,13 @@ body {
   font-family: var(--font-sans);
 }
 
+button {
+  /* without this, a tap right after the map's double-tap-to-open gesture can get
+     absorbed into mobile Safari/Chrome's double-tap-to-zoom detection window,
+     so the button's click never fires even though the same tap works fine on desktop */
+  touch-action: manipulation;
+}
+
 #root {
   min-height: 100svh;
 }

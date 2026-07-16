@@ -10,12 +10,6 @@ type MemberRow = {
   displayName: string
 }
 
-type RawMemberRow = {
-  user_id: string
-  role: 'owner' | 'member'
-  profiles: { display_name: string } | { display_name: string }[] | null
-}
-
 export function MapSettingsPanel({ map, onClose }: { map: MapSummary; onClose: () => void }) {
   const { user } = useAuth()
   const { inviteMember, deleteMap } = useMaps()
@@ -29,20 +23,29 @@ export function MapSettingsPanel({ map, onClose }: { map: MapSummary; onClose: (
   const isOwner = map.role === 'owner'
 
   async function loadMembers() {
-    const { data, error } = await supabase
+    const { data: memberRows, error: memberError } = await supabase
       .from('map_members')
-      .select('user_id, role, profiles(display_name)')
+      .select('user_id, role')
       .eq('map_id', map.id)
-    if (error) {
-      console.error('멤버 조회 실패', error)
+    if (memberError) {
+      console.error('멤버 조회 실패', memberError)
+      setError('참여자 목록을 불러오지 못했습니다.')
+      setMembers([])
       return
     }
-    const rows = (data ?? []) as unknown as RawMemberRow[]
+    const rows = memberRows ?? []
+    const userIds = rows.map((row) => row.user_id)
+    const { data: profileRows, error: profileError } = userIds.length
+      ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
+      : { data: [], error: null }
+    if (profileError) console.error('프로필 조회 실패', profileError)
+    const nameById = new Map((profileRows ?? []).map((p) => [p.id, p.display_name]))
     setMembers(
-      rows.map((row) => {
-        const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-        return { userId: row.user_id, role: row.role, displayName: profile?.display_name ?? '이름 없음' }
-      }),
+      rows.map((row) => ({
+        userId: row.user_id,
+        role: row.role as 'owner' | 'member',
+        displayName: nameById.get(row.user_id) ?? '이름 없음',
+      })),
     )
   }
 
