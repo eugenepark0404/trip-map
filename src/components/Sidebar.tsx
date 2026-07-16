@@ -3,6 +3,7 @@ import { useMaps } from '../context/MapContext'
 import { supabase } from '../lib/supabase'
 import { MapSwitcher } from './MapSwitcher'
 import { FavoritesList } from './FavoritesList'
+import { BucketList } from './BucketList'
 
 export function Sidebar({ onSelectRegion }: { onSelectRegion: (regionCode: string) => void }) {
   const { currentMap } = useMaps()
@@ -56,7 +57,7 @@ export function Sidebar({ onSelectRegion }: { onSelectRegion: (regionCode: strin
                   </section>
                   <section>
                     <p className="mb-2 text-xs text-muted">버킷여행지</p>
-                    <p className="text-sm text-muted">등록한 버킷여행지가 없습니다.</p>
+                    <BucketList />
                   </section>
                 </div>
 

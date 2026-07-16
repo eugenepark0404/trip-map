@@ -54,3 +54,11 @@ export type DiaryInput = {
   revisitItems: string[]
   newPhotos: NewPhoto[]
 }
+
+export type BucketItem = {
+  id: string
+  mapId: string
+  regionCode: string | null
+  title: string
+  memo: string | null
+}

@@ -27,8 +27,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // a new deploy should take over immediately on next reload, not wait for every open
-        // tab/PWA instance to fully close first — otherwise testers keep seeing stale builds.
+        // a new deploy should take over immediately, not wait for every open tab/PWA
+        // instance to fully close first — otherwise testers keep seeing stale builds.
         skipWaiting: true,
         clientsClaim: true,
       },

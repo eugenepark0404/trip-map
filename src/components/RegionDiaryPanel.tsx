@@ -6,7 +6,9 @@ import { supabase } from '../lib/supabase'
 import { loadRegions } from '../lib/regions'
 import { DiaryForm } from './DiaryForm'
 import { BucketNoteForm } from './BucketNoteForm'
-import type { Diary } from '../lib/types'
+import type { BucketItem, Diary } from '../lib/types'
+
+type BucketRow = { id: string; map_id: string; region_code: string | null; title: string; memo: string | null }
 
 export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; onClose: () => void }) {
   const { user } = useAuth()
@@ -14,7 +16,8 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
   const { regionToDiary } = useDiaries()
   const [regionName, setRegionName] = useState(regionCode)
   const [editingDiary, setEditingDiary] = useState<Diary | 'new' | null>(null)
-  const [addingBucketNote, setAddingBucketNote] = useState(false)
+  const [editingBucketItem, setEditingBucketItem] = useState<BucketItem | 'new' | null>(null)
+  const [bucketItems, setBucketItems] = useState<BucketItem[]>([])
   const [expanded, setExpanded] = useState(false)
   const [isFavorite, setIsFavorite] = useState(false)
   const userToggledFavorite = useRef(false)
@@ -43,6 +46,33 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
       })
   }, [currentMapId, regionCode])
 
+  async function loadBucketItems() {
+    if (!currentMapId) return
+    const { data, error } = await supabase
+      .from('bucket_items')
+      .select('id, map_id, region_code, title, memo')
+      .eq('map_id', currentMapId)
+      .eq('region_code', regionCode)
+    if (error) {
+      console.error('버킷일지 조회 실패', error)
+      return
+    }
+    setBucketItems(
+      ((data ?? []) as BucketRow[]).map((row) => ({
+        id: row.id,
+        mapId: row.map_id,
+        regionCode: row.region_code,
+        title: row.title,
+        memo: row.memo,
+      })),
+    )
+  }
+
+  useEffect(() => {
+    loadBucketItems()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMapId, regionCode])
+
   async function toggleFavorite() {
     if (!currentMapId || !user) return
     userToggledFavorite.current = true
@@ -69,8 +99,15 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
     )
   }
 
-  if (addingBucketNote) {
-    return <BucketNoteForm regionCode={regionCode} onClose={() => setAddingBucketNote(false)} />
+  if (editingBucketItem) {
+    return (
+      <BucketNoteForm
+        regionCode={regionCode}
+        item={editingBucketItem === 'new' ? undefined : editingBucketItem}
+        onSaved={loadBucketItems}
+        onClose={() => setEditingBucketItem(null)}
+      />
+    )
   }
 
   return (
@@ -97,7 +134,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
           </button>
         </div>
 
-        {diaries.length === 0 ? (
+        {diaries.length === 0 && bucketItems.length === 0 ? (
           <p className="text-sm text-muted">아직 작성한 다이어리가 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -110,6 +147,20 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
                 >
                   <p className="text-ink">{diary.date}</p>
                   {diary.body && <p className="mt-0.5 truncate text-xs text-muted">{diary.body}</p>}
+                </button>
+              </li>
+            ))}
+            {bucketItems.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => setEditingBucketItem(item)}
+                  className="w-full rounded-sm border border-line px-3 py-2 text-left text-sm hover:bg-region-empty"
+                >
+                  <p className="text-ink">
+                    <span className="mr-1 text-xs text-muted">버킷일지</span>
+                    {item.title}
+                  </p>
                 </button>
               </li>
             ))}
@@ -126,7 +177,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
               type="button"
               onClick={() => {
                 setExpanded(false)
-                setAddingBucketNote(true)
+                setEditingBucketItem('new')
               }}
               className="whitespace-nowrap rounded-full border border-line bg-bg px-4 py-2 text-sm text-ink shadow-sm"
             >

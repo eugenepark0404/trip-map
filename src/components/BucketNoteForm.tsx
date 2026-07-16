@@ -2,17 +2,27 @@ import { useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useMaps } from '../context/MapContext'
 import { supabase } from '../lib/supabase'
+import type { BucketItem } from '../lib/types'
 
-export function BucketNoteForm({ regionCode, onClose }: { regionCode: string; onClose: () => void }) {
+export function BucketNoteForm({
+  regionCode,
+  item,
+  onClose,
+  onSaved,
+}: {
+  regionCode?: string
+  item?: BucketItem
+  onClose: () => void
+  onSaved?: () => void
+}) {
   const { user } = useAuth()
   const { currentMapId } = useMaps()
-  const [memo, setMemo] = useState('')
+  const [memo, setMemo] = useState(item?.memo ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!currentMapId || !user) return
     const trimmed = memo.trim()
     if (!trimmed) {
       setError('내용을 입력해주세요.')
@@ -21,18 +31,43 @@ export function BucketNoteForm({ regionCode, onClose }: { regionCode: string; on
     setError(null)
     setSubmitting(true)
     try {
-      const { error } = await supabase.from('bucket_items').insert({
-        map_id: currentMapId,
-        region_code: regionCode,
-        title: trimmed.slice(0, 40),
-        memo: trimmed,
-        created_by: user.id,
-      })
-      if (error) throw new Error(error.message)
+      if (item) {
+        const { error } = await supabase
+          .from('bucket_items')
+          .update({ title: trimmed.slice(0, 40), memo: trimmed })
+          .eq('id', item.id)
+        if (error) throw new Error(error.message)
+      } else {
+        if (!currentMapId || !user) throw new Error('로그인이 필요합니다.')
+        const { error } = await supabase.from('bucket_items').insert({
+          map_id: currentMapId,
+          region_code: regionCode ?? null,
+          title: trimmed.slice(0, 40),
+          memo: trimmed,
+          created_by: user.id,
+        })
+        if (error) throw new Error(error.message)
+      }
+      onSaved?.()
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : '저장에 실패했습니다.')
     } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!item) return
+    if (!confirm('이 버킷일지를 삭제할까요?')) return
+    setSubmitting(true)
+    try {
+      const { error } = await supabase.from('bucket_items').delete().eq('id', item.id)
+      if (error) throw new Error(error.message)
+      onSaved?.()
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '삭제에 실패했습니다.')
       setSubmitting(false)
     }
   }
@@ -43,7 +78,7 @@ export function BucketNoteForm({ regionCode, onClose }: { regionCode: string; on
         className="w-full max-w-sm rounded-t-md border border-line bg-bg p-5 sm:rounded-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-4 text-base font-medium text-ink">버킷일지 작성</h2>
+        <h2 className="mb-4 text-base font-medium text-ink">{item ? '버킷일지 수정' : '버킷일지 작성'}</h2>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <textarea
             autoFocus
@@ -70,6 +105,16 @@ export function BucketNoteForm({ regionCode, onClose }: { regionCode: string; on
               저장
             </button>
           </div>
+          {item && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={submitting}
+              className="text-sm text-muted underline underline-offset-2 disabled:opacity-50"
+            >
+              버킷일지 삭제
+            </button>
+          )}
         </form>
       </div>
     </div>
