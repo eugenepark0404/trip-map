@@ -1,27 +1,17 @@
 import { useState } from 'react'
 import { useMaps } from '../context/MapContext'
 import { CreateMapModal } from './CreateMapModal'
+import { MapSettingsPanel } from './MapSettingsPanel'
+import type { MapSummary } from '../lib/types'
 
 export function MapSwitcher({ onSelect }: { onSelect: () => void }) {
-  const { maps, currentMapId, switchMap, toggleFavorite, deleteMap } = useMaps()
+  const { maps, currentMapId, switchMap, toggleFavorite } = useMaps()
   const [creating, setCreating] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-
-  async function handleDelete(mapId: string, name: string) {
-    if (!confirm(`"${name}" 지도를 삭제할까요? 지도 안의 모든 다이어리와 사진이 함께 삭제되며 되돌릴 수 없습니다.`)) return
-    setDeletingId(mapId)
-    try {
-      await deleteMap(mapId)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : '삭제에 실패했습니다.')
-    } finally {
-      setDeletingId(null)
-    }
-  }
+  const [settingsFor, setSettingsFor] = useState<MapSummary | null>(null)
 
   return (
     <div className="relative flex h-full flex-col">
-      <p className="mb-3 text-xs text-muted">지도 변경</p>
+      <p className="mb-3 text-xs text-muted">지도 설정</p>
       <ul className="flex flex-col gap-1 overflow-y-auto">
         {maps.map((map) => (
           <li key={map.id} className="flex items-center gap-1">
@@ -45,16 +35,14 @@ export function MapSwitcher({ onSelect }: { onSelect: () => void }) {
             >
               {map.name}
             </button>
-            {map.role === 'owner' && (
-              <button
-                type="button"
-                onClick={() => handleDelete(map.id, map.name)}
-                disabled={deletingId === map.id}
-                className="px-2 text-xs text-muted underline underline-offset-2 disabled:opacity-50"
-              >
-                삭제
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setSettingsFor(map)}
+              aria-label={`${map.name} 설정`}
+              className="px-2 text-xs text-muted underline underline-offset-2"
+            >
+              설정
+            </button>
           </li>
         ))}
         {maps.length === 0 && <li className="px-3 py-2 text-sm text-muted">아직 지도가 없습니다.</li>}
@@ -70,6 +58,7 @@ export function MapSwitcher({ onSelect }: { onSelect: () => void }) {
       </button>
 
       {creating && <CreateMapModal onClose={() => setCreating(false)} />}
+      {settingsFor && <MapSettingsPanel map={settingsFor} onClose={() => setSettingsFor(null)} />}
     </div>
   )
 }

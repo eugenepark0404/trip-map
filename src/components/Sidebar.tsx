@@ -40,7 +40,7 @@ export function Sidebar() {
                   onClick={() => setView('switcher')}
                   className="mt-1 self-start text-xs text-muted underline underline-offset-2"
                 >
-                  지도 변경/추가
+                  지도 설정
                 </button>
 
                 <div className="mt-8 flex flex-col gap-6 overflow-y-auto">
