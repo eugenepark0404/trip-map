@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useDiaries } from '../context/DiaryContext'
 import { useMaps } from '../context/MapContext'
@@ -17,6 +17,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
   const [addingBucketNote, setAddingBucketNote] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [isFavorite, setIsFavorite] = useState(false)
+  const userToggledFavorite = useRef(false)
 
   useEffect(() => {
     loadRegions().then((collection) => {
@@ -27,23 +28,32 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
 
   useEffect(() => {
     if (!currentMapId) return
+    userToggledFavorite.current = false
     supabase
       .from('favorites')
       .select('region_code')
       .eq('map_id', currentMapId)
       .eq('region_code', regionCode)
       .maybeSingle()
-      .then(({ data }) => setIsFavorite(!!data))
+      .then(({ data, error }) => {
+        if (error) console.error('즐겨찾기 조회 실패', error)
+        // a manual toggle may have already landed before this (slower) initial check resolves —
+        // don't let a stale result stomp on it
+        if (!userToggledFavorite.current) setIsFavorite(!!data)
+      })
   }, [currentMapId, regionCode])
 
   async function toggleFavorite() {
     if (!currentMapId || !user) return
-    if (isFavorite) {
-      await supabase.from('favorites').delete().eq('map_id', currentMapId).eq('region_code', regionCode)
-      setIsFavorite(false)
-    } else {
-      await supabase.from('favorites').insert({ map_id: currentMapId, region_code: regionCode, created_by: user.id })
-      setIsFavorite(true)
+    userToggledFavorite.current = true
+    const next = !isFavorite
+    setIsFavorite(next) // reflect immediately; roll back if the write fails
+    const { error } = next
+      ? await supabase.from('favorites').insert({ map_id: currentMapId, region_code: regionCode, created_by: user.id })
+      : await supabase.from('favorites').delete().eq('map_id', currentMapId).eq('region_code', regionCode)
+    if (error) {
+      console.error('즐겨찾기 갱신 실패', error)
+      setIsFavorite(!next)
     }
   }
 
