@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { useDiaries } from '../context/DiaryContext'
+import { useMaps } from '../context/MapContext'
+import { supabase } from '../lib/supabase'
 import { loadRegions } from '../lib/regions'
 import { DiaryForm } from './DiaryForm'
+import { BucketNoteForm } from './BucketNoteForm'
 import type { Diary } from '../lib/types'
 
 export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; onClose: () => void }) {
+  const { user } = useAuth()
+  const { currentMapId } = useMaps()
   const { regionToDiary } = useDiaries()
   const [regionName, setRegionName] = useState(regionCode)
   const [editingDiary, setEditingDiary] = useState<Diary | 'new' | null>(null)
+  const [addingBucketNote, setAddingBucketNote] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [isFavorite, setIsFavorite] = useState(false)
 
   useEffect(() => {
     loadRegions().then((collection) => {
@@ -15,6 +24,28 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
       if (feature) setRegionName(feature.properties.name)
     })
   }, [regionCode])
+
+  useEffect(() => {
+    if (!currentMapId) return
+    supabase
+      .from('favorites')
+      .select('region_code')
+      .eq('map_id', currentMapId)
+      .eq('region_code', regionCode)
+      .maybeSingle()
+      .then(({ data }) => setIsFavorite(!!data))
+  }, [currentMapId, regionCode])
+
+  async function toggleFavorite() {
+    if (!currentMapId || !user) return
+    if (isFavorite) {
+      await supabase.from('favorites').delete().eq('map_id', currentMapId).eq('region_code', regionCode)
+      setIsFavorite(false)
+    } else {
+      await supabase.from('favorites').insert({ map_id: currentMapId, region_code: regionCode, created_by: user.id })
+      setIsFavorite(true)
+    }
+  }
 
   const diaries = regionToDiary.get(regionCode) ?? []
 
@@ -28,13 +59,33 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
     )
   }
 
+  if (addingBucketNote) {
+    return <BucketNoteForm regionCode={regionCode} onClose={() => setAddingBucketNote(false)} />
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/20 sm:items-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/20 sm:items-center"
+      onClick={() => {
+        setExpanded(false)
+        onClose()
+      }}
+    >
       <div
         className="relative max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-md border border-line bg-bg p-5 pb-20 sm:rounded-md"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-4 text-base font-medium text-ink">{regionName}</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-medium text-ink">{regionName}</h2>
+          <button
+            type="button"
+            onClick={toggleFavorite}
+            aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기'}
+            className={`text-lg ${isFavorite ? 'text-lime-500' : 'text-line'}`}
+          >
+            ★
+          </button>
+        </div>
 
         {diaries.length === 0 ? (
           <p className="text-sm text-muted">아직 작성한 다이어리가 없습니다.</p>
@@ -55,14 +106,45 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
           </ul>
         )}
 
-        <button
-          type="button"
-          onClick={() => setEditingDiary('new')}
-          aria-label="새 다이어리 추가"
-          className="absolute bottom-5 right-5 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-lg text-accent-ink"
-        >
-          +
-        </button>
+        <div className="absolute bottom-5 right-5 flex flex-col items-end gap-2">
+          <div
+            className={`flex flex-col items-end gap-2 transition-all duration-200 ${
+              expanded ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setExpanded(false)
+                setAddingBucketNote(true)
+              }}
+              className="whitespace-nowrap rounded-full border border-line bg-bg px-4 py-2 text-sm text-ink shadow-sm"
+            >
+              버킷일지 작성
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExpanded(false)
+                setEditingDiary('new')
+              }}
+              className="whitespace-nowrap rounded-full border border-line bg-bg px-4 py-2 text-sm text-ink shadow-sm"
+            >
+              여행일지 작성
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-label="새 항목 추가"
+            className={`flex h-11 w-11 items-center justify-center rounded-full bg-accent text-lg text-accent-ink transition-transform ${
+              expanded ? 'rotate-45' : ''
+            }`}
+          >
+            +
+          </button>
+        </div>
       </div>
     </div>
   )
