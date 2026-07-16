@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useEffect, useState } from 'react'
 import { useDiaries } from '../context/DiaryContext'
 import { useMaps } from '../context/MapContext'
 import { supabase } from '../lib/supabase'
@@ -11,7 +10,6 @@ import type { BucketItem, Diary } from '../lib/types'
 type BucketRow = { id: string; map_id: string; region_code: string | null; title: string; memo: string | null }
 
 export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; onClose: () => void }) {
-  const { user } = useAuth()
   const { currentMapId } = useMaps()
   const { regionToDiary } = useDiaries()
   const [regionName, setRegionName] = useState(regionCode)
@@ -19,9 +17,6 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
   const [editingBucketItem, setEditingBucketItem] = useState<BucketItem | 'new' | null>(null)
   const [bucketItems, setBucketItems] = useState<BucketItem[]>([])
   const [expanded, setExpanded] = useState(false)
-  const [isFavorite, setIsFavorite] = useState(false)
-  const [favoriteError, setFavoriteError] = useState<string | null>(null)
-  const userToggledFavorite = useRef(false)
 
   useEffect(() => {
     loadRegions().then((collection) => {
@@ -29,23 +24,6 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
       if (feature) setRegionName(feature.properties.name)
     })
   }, [regionCode])
-
-  useEffect(() => {
-    if (!currentMapId) return
-    userToggledFavorite.current = false
-    supabase
-      .from('favorites')
-      .select('region_code')
-      .eq('map_id', currentMapId)
-      .eq('region_code', regionCode)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (error) console.error('즐겨찾기 조회 실패', error)
-        // a manual toggle may have already landed before this (slower) initial check resolves —
-        // don't let a stale result stomp on it
-        if (!userToggledFavorite.current) setIsFavorite(!!data)
-      })
-  }, [currentMapId, regionCode])
 
   async function loadBucketItems() {
     if (!currentMapId) return
@@ -73,22 +51,6 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
     loadBucketItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMapId, regionCode])
-
-  async function toggleFavorite() {
-    if (!currentMapId || !user) return
-    userToggledFavorite.current = true
-    setFavoriteError(null)
-    const next = !isFavorite
-    setIsFavorite(next) // reflect immediately; roll back if the write fails
-    const { error } = next
-      ? await supabase.from('favorites').insert({ map_id: currentMapId, region_code: regionCode, created_by: user.id })
-      : await supabase.from('favorites').delete().eq('map_id', currentMapId).eq('region_code', regionCode)
-    if (error) {
-      console.error('즐겨찾기 갱신 실패', error)
-      setIsFavorite(!next)
-      setFavoriteError('즐겨찾기 갱신에 실패했습니다. 다시 시도해주세요.')
-    }
-  }
 
   const diaries = regionToDiary.get(regionCode) ?? []
 
@@ -127,16 +89,7 @@ export function RegionDiaryPanel({ regionCode, onClose }: { regionCode: string; 
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-medium text-ink">{regionName}</h2>
-          <button
-            type="button"
-            onClick={toggleFavorite}
-            aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기'}
-            className={`text-lg ${isFavorite ? 'text-lime-500' : 'text-line'}`}
-          >
-            ★
-          </button>
         </div>
-        {favoriteError && <p className="mb-3 -mt-2 text-xs text-accent">{favoriteError}</p>}
 
         {diaries.length === 0 && bucketItems.length === 0 ? (
           <p className="text-sm text-muted">아직 작성한 다이어리가 없습니다.</p>

@@ -2,10 +2,9 @@ import { useState } from 'react'
 import { useMaps } from '../context/MapContext'
 import { supabase } from '../lib/supabase'
 import { MapSwitcher } from './MapSwitcher'
-import { FavoritesList } from './FavoritesList'
 import { BucketList } from './BucketList'
 
-export function Sidebar({ onSelectRegion }: { onSelectRegion: (regionCode: string) => void }) {
+export function Sidebar() {
   const { currentMap } = useMaps()
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'menu' | 'switcher'>('menu')
@@ -46,15 +45,6 @@ export function Sidebar({ onSelectRegion }: { onSelectRegion: (regionCode: strin
                 </button>
 
                 <div className="mt-8 flex flex-col gap-6 overflow-y-auto">
-                  <section>
-                    <p className="mb-2 text-xs text-muted">즐겨찾기</p>
-                    <FavoritesList
-                      onSelectRegion={(code) => {
-                        close()
-                        onSelectRegion(code)
-                      }}
-                    />
-                  </section>
                   <section>
                     <p className="mb-2 text-xs text-muted">버킷여행지</p>
                     <BucketList />

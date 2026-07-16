@@ -43,7 +43,7 @@ export function HomePage() {
 
   return (
     <div className="relative h-svh overflow-hidden">
-      <Sidebar onSelectRegion={(code) => mapRef.current?.focusRegion(code)} />
+      <Sidebar />
       <SearchBar onSelectRegion={(code) => mapRef.current?.focusRegion(code)} />
       <KoreaMap ref={mapRef} onRegionTap={setDiaryRegion} />
       {diaryRegion && <RegionDiaryPanel regionCode={diaryRegion} onClose={() => setDiaryRegion(null)} />}
